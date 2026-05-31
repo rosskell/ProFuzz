@@ -198,7 +198,7 @@ ProFuzzAudioProcessorEditor::ProFuzzAudioProcessorEditor (ProFuzzAudioProcessor&
     addAndMakeVisible (footSw);
     footAttach = std::make_unique<ButtonAttachment> (processor.apvts, "voicing", footSw);
 
-    setSize (380, 740);
+    setSize (380, 760);
 }
 
 ProFuzzAudioProcessorEditor::~ProFuzzAudioProcessorEditor()
@@ -340,11 +340,11 @@ void ProFuzzAudioProcessorEditor::paint (juce::Graphics& g)
     // big "Pro Fuzz" wordmark + CLASSIC (slightly worn white)
     g.setColour (PF::textWorn);
     g.setFont (juce::Font (46.0f, juce::Font::bold | juce::Font::italic));
-    g.drawText ("Pro Fuzz", juce::Rectangle<int> (0, 506, getWidth(), 52),
+    g.drawText ("Pro Fuzz", juce::Rectangle<int> (0, 528, getWidth(), 52),
                 juce::Justification::centred, false);
     g.setColour (PF::goldDull);
     g.setFont (juce::Font (16.0f, juce::Font::bold));
-    g.drawText ("CLASSIC", juce::Rectangle<int> (0, 552, getWidth() - 44, 20),
+    g.drawText ("CLASSIC", juce::Rectangle<int> (0, 574, getWidth() - 44, 20),
                 juce::Justification::centredRight, false);
 
     // a worn scuff right across the wordmark (paint rubbed off from handling)
@@ -353,7 +353,7 @@ void ProFuzzAudioProcessorEditor::paint (juce::Graphics& g)
         g.setColour (PF::purpleTop.withAlpha (0.25f));
         for (int i = 0; i < 4; ++i)
         {
-            const float yy = 514.0f + rng.nextFloat() * 40.0f;
+            const float yy = 536.0f + rng.nextFloat() * 40.0f;
             g.drawLine (60.0f + rng.nextFloat() * 40.0f, yy,
                         W - 60.0f - rng.nextFloat() * 40.0f, yy + (rng.nextFloat() - 0.5f) * 6.0f,
                         1.0f + rng.nextFloat() * 1.5f);
@@ -412,10 +412,10 @@ void ProFuzzAudioProcessorEditor::resized()
     for (int i = 0; i < 5; ++i)
         place (*ex[i], (int) ((i + 0.5f) * (W / 5.0f)), 400, 46, 13);
 
-    // dying-mode selector centered below the extras
-    dyModeLabel.setBounds (W/2 - 90, 432, 180, 14);
-    dyModeBox.setBounds   (W/2 - 80, 448, 160, 24);
+    // dying-mode selector centered below the extras (clear of the knob value boxes)
+    dyModeLabel.setBounds (W/2 - 90, 460, 180, 14);
+    dyModeBox.setBounds   (W/2 - 80, 476, 160, 24);
 
-    // voicing footswitch near the bottom (above the wordmark)
-    footSw.setBounds (W/2 - 90, 596, 180, 100);
+    // voicing footswitch near the bottom (below the wordmark)
+    footSw.setBounds (W/2 - 90, 612, 180, 100);
 }

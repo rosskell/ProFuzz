@@ -1,0 +1,58 @@
+{
+  "Name": "ProFuzz",
+  "Version": "0.6.1",
+  "Factory Info": {
+    "Vendor": "Donaldson Audio",
+    "URL": "",
+    "E-Mail": "",
+    "Flags": {
+      "Unicode": true,
+      "Classes Discardable": false,
+      "Component Non Discardable": false,
+    },
+  },
+  "Classes": [
+    {
+      "CID": "ABCDEF019182FAEB446E6C6450667A7A",
+      "Category": "Audio Module Class",
+      "Name": "ProFuzz",
+      "Vendor": "Donaldson Audio",
+      "Version": "0.6.1",
+      "SDKVersion": "VST 3.7.12",
+      "Sub Categories": [
+        "Fx",
+      ],
+      "Class Flags": 0,
+      "Cardinality": 2147483647,
+      "Snapshots": [
+      ],
+    },
+    {
+      "CID": "ABCDEF011234ABCD446E6C6450667A7A",
+      "Category": "Component Controller Class",
+      "Name": "ProFuzz",
+      "Vendor": "Donaldson Audio",
+      "Version": "0.6.1",
+      "SDKVersion": "VST 3.7.12",
+      "Sub Categories": [
+        "Fx",
+      ],
+      "Class Flags": 0,
+      "Cardinality": 2147483647,
+      "Snapshots": [
+      ],
+    },
+    {
+      "CID": "ABCDEF01C0DEF00D446E6C6450667A7A",
+      "Category": "Plugin Compatibility Class",
+      "Name": "ProFuzz",
+      "Vendor": "Donaldson Audio",
+      "Version": "0.6.1",
+      "SDKVersion": "VST 3.7.12",
+      "Class Flags": 0,
+      "Cardinality": 2147483647,
+      "Snapshots": [
+      ],
+    },
+  ],
+}

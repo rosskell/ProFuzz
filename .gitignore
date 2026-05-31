@@ -13,6 +13,10 @@
 .DS_Store
 Thumbs.db
 
+# Locked-DLL rename-swap leftovers
+*.old
+*.old.tmpv0
+
 # Python analysis tooling artifacts
 __pycache__/
 *.pyc
@@ -22,3 +26,6 @@ analysis.png
 # (Use Git LFS if you ever want these tracked.)
 *.wav
 *.mp3
+
+# NOTE: dist/ holds the shipped VST3 bundle and IS tracked on purpose.
+# /build/ above only ignores the build tree, not dist/.

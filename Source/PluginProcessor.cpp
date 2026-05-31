@@ -255,11 +255,11 @@ void ProFuzzAudioProcessor::applyVoicing (int v)
     // Mk II values came from a spectral match of the DI rendered through the
     // chain against the real-pedal recording: the real pedal is much darker up
     // top and tighter in the lows than Mk I, with less mid scoop.
-    const float inHz  = (v == 1) ?    85.0f :    45.0f; // input coupling HPF
-    const float lp1Hz = (v == 1) ?  6000.0f : 18000.0f; // inter-stage LPF 1
-    const float lp2Hz = (v == 1) ?  4000.0f : 15000.0f; // inter-stage LPF 2
+    const float inHz  = (v == 1) ?    75.0f :    45.0f; // input coupling HPF
+    const float lp1Hz = (v == 1) ?  9500.0f : 18000.0f; // inter-stage LPF 1 (brighter Mk II)
+    const float lp2Hz = (v == 1) ?  6500.0f : 15000.0f; // inter-stage LPF 2 (brighter Mk II)
     const float tLpHz = (v == 1) ?  1200.0f :   800.0f; // tone low path (more body)
-    const float tHpHz = (v == 1) ?  1500.0f :  2000.0f; // tone high path (less scoop)
+    const float tHpHz = (v == 1) ?  1600.0f :  2000.0f; // tone high path (less scoop)
 
     for (auto& f : inputHPF)
         f.coefficients = juce::dsp::IIR::Coefficients<float>::makeHighPass (currentSampleRate, inHz);
