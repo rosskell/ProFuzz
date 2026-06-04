@@ -33,6 +33,10 @@ public:
 
     juce::AudioProcessorValueTreeState apvts;
 
+    // Output level for the VU meter (linear RMS, written on the audio thread,
+    // read by the editor's timer). Atomic = no lock, no tearing.
+    std::atomic<float> vuLinear { 0.0f };
+
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
@@ -63,6 +67,11 @@ private:
     int lastMode = -1;
     float lastBody = std::numeric_limits<float>::quiet_NaN();
     float lastBite = std::numeric_limits<float>::quiet_NaN();
+
+    // Auto-level (auto makeup gain): tracks how hard Drive pushes and pulls the
+    // output back to a constant perceived level. Smoothed so it never zippers.
+    juce::SmoothedValue<float> autoMakeup;
+    float vuMeter = 0.0f; // VU ballistics state (audio thread)
 
     juce::SmoothedValue<float> inputGain, driveGain, outputGain, mixAmt, biasAmt, foldAmt, compAmt;
 

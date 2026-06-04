@@ -12,6 +12,7 @@ namespace VoxParam
     constexpr auto mix = "mix";
     constexpr auto output = "output";
     constexpr auto mode = "mode";
+    constexpr auto autolevel = "autolevel";
 }
 
 DrowningInVoxAudioProcessor::DrowningInVoxAudioProcessor()
@@ -63,6 +64,12 @@ DrowningInVoxAudioProcessor::createParameterLayout()
     params.push_back (std::make_unique<AudioParameterChoice>(
         ParameterID { VoxParam::mode, 1 }, "Mode",
         StringArray { "Smooth", "Warm", "Blown" }, 1));
+
+    // Auto Level: when on, applies automatic makeup gain that counteracts the
+    // Drive setting so the output loudness stays roughly constant as you push
+    // harder -- like a leveling amplifier. Default on.
+    params.push_back (std::make_unique<AudioParameterBool>(
+        ParameterID { VoxParam::autolevel, 1 }, "Auto Level", true));
 
     return { params.begin(), params.end() };
 }
@@ -135,6 +142,9 @@ void DrowningInVoxAudioProcessor::prepareToPlay (double sampleRate, int samplesP
     biasAmt.reset (sampleRate * 4.0, ramp);
     foldAmt.reset (sampleRate * 4.0, ramp);
     compAmt.reset (sampleRate, ramp);
+    autoMakeup.reset (sampleRate, 0.05);
+    vuMeter = 0.0f;
+    vuLinear.store (0.0f);
 
     dryBuffer.setSize ((int) numChannels, samplesPerBlock);
 }
@@ -174,10 +184,19 @@ void DrowningInVoxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer
     const float mix = apvts.getRawParameterValue (VoxParam::mix)->load();
     const float outputDb = apvts.getRawParameterValue (VoxParam::output)->load();
     const int mode = (int) apvts.getRawParameterValue (VoxParam::mode)->load();
+    const bool autoLevel = apvts.getRawParameterValue (VoxParam::autolevel)->load() > 0.5f;
 
     inputGain.setTargetValue (juce::Decibels::decibelsToGain (inputDb));
     driveGain.setTargetValue (juce::Decibels::decibelsToGain (driveDb));
     outputGain.setTargetValue (juce::Decibels::decibelsToGain (outputDb));
+
+    // Auto makeup: the soft clipper compresses peaks as Drive rises, so loudness
+    // would otherwise jump. Counter it with gain ~ inverse of the drive, scaled
+    // back (0.7) because saturation also adds level. Off => unity (1.0).
+    const float makeup = autoLevel
+        ? std::pow (juce::Decibels::decibelsToGain (-driveDb), 0.7f)
+        : 1.0f;
+    autoMakeup.setTargetValue (makeup);
     mixAmt.setTargetValue (mix);
     compAmt.setTargetValue (comp);
 
@@ -278,9 +297,10 @@ void DrowningInVoxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer
         const auto* dry = dryBuffer.getReadPointer (juce::jmin (ch, dryBuffer.getNumChannels() - 1));
         auto og = outputGain;
         auto mx = mixAmt;
+        auto am = autoMakeup;
         for (int n = 0; n < numSamples; ++n)
         {
-            float s = wet[n] * og.getNextValue();
+            float s = wet[n] * am.getNextValue() * og.getNextValue();
             if (ch < kNumCh)
                 s = outputDC[(size_t) ch].processSample (s);
             if (! std::isfinite (s)) s = 0.0f;
@@ -290,6 +310,23 @@ void DrowningInVoxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer
     }
     outputGain.skip (numSamples);
     mixAmt.skip (numSamples);
+    autoMakeup.skip (numSamples);
+
+    // --- VU meter: average the output magnitude across channels, apply VU-style
+    //     ballistics (~300 ms), publish to the editor. ---
+    {
+        double sum = 0.0;
+        for (int ch = 0; ch < numCh; ++ch)
+        {
+            const auto* x = buffer.getReadPointer (ch);
+            for (int n = 0; n < numSamples; ++n)
+                sum += std::abs (x[n]);
+        }
+        const float avg = numCh > 0 ? (float) (sum / (numCh * juce::jmax (1, numSamples))) : 0.0f;
+        const float coeff = 1.0f - std::exp (-(float) numSamples / (0.30f * (float) currentSampleRate));
+        vuMeter += coeff * (avg - vuMeter);
+        vuLinear.store (vuMeter, std::memory_order_relaxed);
+    }
 }
 
 juce::AudioProcessorEditor* DrowningInVoxAudioProcessor::createEditor()
