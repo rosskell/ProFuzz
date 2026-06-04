@@ -59,7 +59,7 @@ DrowningInVoxAudioProcessor::createParameterLayout()
 
     params.push_back (std::make_unique<AudioParameterFloat>(
         ParameterID { VoxParam::output, 1 }, "Output",
-        NormalisableRange<float> (-24.0f, 12.0f, 0.1f), -3.0f));
+        NormalisableRange<float> (-24.0f, 12.0f, 0.1f), 0.0f));
 
     params.push_back (std::make_unique<AudioParameterChoice>(
         ParameterID { VoxParam::mode, 1 }, "Mode",
@@ -295,10 +295,11 @@ void DrowningInVoxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer
     }
     compAmt.skip (numSamples);
 
-    // --- Auto level: match processed (wet) loudness to the dry reference so
-    //     sweeping Mix doesn't change perceived level. Closed-loop. Both dry and
-    //     wet are integrated into SLOW cross-block envelopes (~400 ms) before the
-    //     ratio is taken -- per-block RMS swings too much and pumps. Off => 1. ---
+    // --- Auto level (AGC): drive the WET signal toward a fixed target loudness
+    //     so the output stays the same no matter what knob you turn. Measure the
+    //     wet level into a slow (~400 ms) cross-block RMS envelope, then set
+    //     makeup = target / wetRMS. Hold gain when below a signal floor so gaps
+    //     don't make it run away. Off => unity. ---
     {
         double wetSq = 0.0;
         for (int ch = 0; ch < numCh; ++ch)
@@ -309,19 +310,19 @@ void DrowningInVoxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer
         }
         const double wetMS = numSamples > 0 ? wetSq / (numCh * numSamples) : 0.0;
 
-        // One-pole integrate in the mean-square domain, ~400 ms time constant.
         const double tau = 0.40;
         const double a = 1.0 - std::exp (-(double) numSamples / (tau * currentSampleRate));
-        dryEnvSq += a * (dryMS - dryEnvSq);
         wetEnvSq += a * (wetMS - wetEnvSq);
+        juce::ignoreUnused (dryMS, dryEnvSq);
 
-        float target = 1.0f;
-        // Only adapt when there's real signal; below the floor, hold unity so a
-        // gap doesn't make the gain run away and slam the next note.
-        if (autoLevel && wetEnvSq > 1.0e-8 && dryEnvSq > 1.0e-8)
-            target = juce::jlimit (0.25f, 4.0f,
-                                   (float) std::sqrt (dryEnvSq / wetEnvSq)); // +/-12 dB
-        autoMakeup.setTargetValue (target);
+        // Fixed target: -18 dBFS RMS (≈ 0 VU). Output lands here regardless of
+        // Input/Drive/Mode, which is what "auto level" should do.
+        const float targetRms = juce::Decibels::decibelsToGain (-18.0f);
+        const float wetRms = (float) std::sqrt (wetEnvSq);
+        float makeup = 1.0f;
+        if (autoLevel && wetRms > 1.0e-4f) // floor ~ -80 dB; hold gain in silence
+            makeup = juce::jlimit (0.125f, 8.0f, targetRms / wetRms); // +/-18 dB
+        autoMakeup.setTargetValue (makeup);
     }
 
     for (int ch = 0; ch < numCh; ++ch)

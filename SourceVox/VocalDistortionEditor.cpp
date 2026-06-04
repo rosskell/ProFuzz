@@ -83,10 +83,10 @@ void VUMeter::timerCallback()
     // reads about 0 VU; clamp and gamma-shape for a natural sweep.
     const float lin = processor.vuLinear.load (std::memory_order_relaxed);
     const float db  = juce::Decibels::gainToDecibels (lin + 1.0e-6f);
-    // RMS VU scale calibrated for program material: 0 VU ~ -18 dBFS RMS, so the
-    // needle reads mid-scale at sensible output levels (not just at max).
-    //   -38 dBFS -> 0 (left), -6 dBFS -> 1 (right), red zone above ~-12.
-    float target = juce::jmap (db, -38.0f, -6.0f, 0.0f, 1.0f);
+    // RMS VU scale. Auto Level targets -18 dBFS RMS, which should read 0 VU near
+    // the top of the sweep. Map -30 dBFS -> 0 (left), -6 dBFS -> 1 (right);
+    // 0 VU (-18) lands at 0.5, red zone above ~-12 dBFS.
+    float target = juce::jmap (db, -30.0f, -6.0f, 0.0f, 1.0f);
     target = juce::jlimit (0.0f, 1.0f, target);
 
     // moving-coil inertia
