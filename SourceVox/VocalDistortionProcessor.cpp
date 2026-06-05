@@ -59,7 +59,7 @@ DrowningInVoxAudioProcessor::createParameterLayout()
 
     params.push_back (std::make_unique<AudioParameterFloat>(
         ParameterID { VoxParam::output, 1 }, "Output",
-        NormalisableRange<float> (-24.0f, 12.0f, 0.1f), -3.0f));
+        NormalisableRange<float> (-24.0f, 12.0f, 0.1f), 0.0f));
 
     params.push_back (std::make_unique<AudioParameterChoice>(
         ParameterID { VoxParam::mode, 1 }, "Mode",
@@ -142,7 +142,9 @@ void DrowningInVoxAudioProcessor::prepareToPlay (double sampleRate, int samplesP
     biasAmt.reset (sampleRate * 4.0, ramp);
     foldAmt.reset (sampleRate * 4.0, ramp);
     compAmt.reset (sampleRate, ramp);
-    autoMakeup.reset (sampleRate, 0.05);
+    autoMakeup.reset (sampleRate, 0.15);
+    dryEnvSq = 0.0;
+    wetEnvSq = 0.0;
     vuMeter = 0.0f;
     vuLinear.store (0.0f);
 
@@ -189,14 +191,6 @@ void DrowningInVoxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer
     inputGain.setTargetValue (juce::Decibels::decibelsToGain (inputDb));
     driveGain.setTargetValue (juce::Decibels::decibelsToGain (driveDb));
     outputGain.setTargetValue (juce::Decibels::decibelsToGain (outputDb));
-
-    // Auto makeup: the soft clipper compresses peaks as Drive rises, so loudness
-    // would otherwise jump. Counter it with gain ~ inverse of the drive, scaled
-    // back (0.7) because saturation also adds level. Off => unity (1.0).
-    const float makeup = autoLevel
-        ? std::pow (juce::Decibels::decibelsToGain (-driveDb), 0.7f)
-        : 1.0f;
-    autoMakeup.setTargetValue (makeup);
     mixAmt.setTargetValue (mix);
     compAmt.setTargetValue (comp);
 
@@ -229,6 +223,16 @@ void DrowningInVoxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer
     }
 
     dryBuffer.makeCopyOf (buffer, true);
+
+    // Dry mean-square (post input-gain, pre-distortion) — reference for auto level.
+    double drySq = 0.0;
+    for (int ch = 0; ch < numCh; ++ch)
+    {
+        const auto* x = buffer.getReadPointer (ch);
+        for (int n = 0; n < numSamples; ++n)
+            drySq += (double) x[n] * x[n];
+    }
+    const double dryMS = numSamples > 0 ? drySq / (numCh * numSamples) : 0.0;
 
     const float gateThr = juce::Decibels::decibelsToGain (gateDb);
     const float gateRelease = 0.9992f;
@@ -291,6 +295,36 @@ void DrowningInVoxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer
     }
     compAmt.skip (numSamples);
 
+    // --- Auto level (AGC): drive the WET signal toward a fixed target loudness
+    //     so the output stays the same no matter what knob you turn. Measure the
+    //     wet level into a slow (~400 ms) cross-block RMS envelope, then set
+    //     makeup = target / wetRMS. Hold gain when below a signal floor so gaps
+    //     don't make it run away. Off => unity. ---
+    {
+        double wetSq = 0.0;
+        for (int ch = 0; ch < numCh; ++ch)
+        {
+            const auto* x = buffer.getReadPointer (ch);
+            for (int n = 0; n < numSamples; ++n)
+                wetSq += (double) x[n] * x[n];
+        }
+        const double wetMS = numSamples > 0 ? wetSq / (numCh * numSamples) : 0.0;
+
+        const double tau = 0.40;
+        const double a = 1.0 - std::exp (-(double) numSamples / (tau * currentSampleRate));
+        wetEnvSq += a * (wetMS - wetEnvSq);
+        juce::ignoreUnused (dryMS, dryEnvSq);
+
+        // Fixed target: -18 dBFS RMS (≈ 0 VU). Output lands here regardless of
+        // Input/Drive/Mode, which is what "auto level" should do.
+        const float targetRms = juce::Decibels::decibelsToGain (-18.0f);
+        const float wetRms = (float) std::sqrt (wetEnvSq);
+        float makeup = 1.0f;
+        if (autoLevel && wetRms > 1.0e-4f) // floor ~ -80 dB; hold gain in silence
+            makeup = juce::jlimit (0.125f, 8.0f, targetRms / wetRms); // +/-18 dB
+        autoMakeup.setTargetValue (makeup);
+    }
+
     for (int ch = 0; ch < numCh; ++ch)
     {
         auto* wet = buffer.getWritePointer (ch);
@@ -300,12 +334,16 @@ void DrowningInVoxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer
         auto am = autoMakeup;
         for (int n = 0; n < numSamples; ++n)
         {
-            float s = wet[n] * am.getNextValue() * og.getNextValue();
+            // Auto-makeup brings wet to dry loudness; THEN crossfade with dry;
+            // THEN apply Output as a master trim to the whole mix so sweeping
+            // Mix never changes level. DC-block the wet before mixing.
+            float w = wet[n] * am.getNextValue();
             if (ch < kNumCh)
-                s = outputDC[(size_t) ch].processSample (s);
-            if (! std::isfinite (s)) s = 0.0f;
+                w = outputDC[(size_t) ch].processSample (w);
             const float m = mx.getNextValue();
-            wet[n] = juce::jlimit (-1.5f, 1.5f, s) * m + dry[n] * (1.0f - m);
+            float s = (w * m + dry[n] * (1.0f - m)) * og.getNextValue();
+            if (! std::isfinite (s)) s = 0.0f;
+            wet[n] = juce::jlimit (-1.5f, 1.5f, s);
         }
     }
     outputGain.skip (numSamples);
@@ -315,16 +353,18 @@ void DrowningInVoxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer
     // --- VU meter: average the output magnitude across channels, apply VU-style
     //     ballistics (~300 ms), publish to the editor. ---
     {
-        double sum = 0.0;
+        double sumSq = 0.0;
         for (int ch = 0; ch < numCh; ++ch)
         {
             const auto* x = buffer.getReadPointer (ch);
             for (int n = 0; n < numSamples; ++n)
-                sum += std::abs (x[n]);
+                sumSq += (double) x[n] * x[n];
         }
-        const float avg = numCh > 0 ? (float) (sum / (numCh * juce::jmax (1, numSamples))) : 0.0f;
+        const int total = numCh * juce::jmax (1, numSamples);
+        const float rms = total > 0 ? std::sqrt ((float) (sumSq / total)) : 0.0f;
+        // 300 ms VU ballistics on the linear RMS; editor maps to the dial scale.
         const float coeff = 1.0f - std::exp (-(float) numSamples / (0.30f * (float) currentSampleRate));
-        vuMeter += coeff * (avg - vuMeter);
+        vuMeter += coeff * (rms - vuMeter);
         vuLinear.store (vuMeter, std::memory_order_relaxed);
     }
 }

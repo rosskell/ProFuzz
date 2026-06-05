@@ -68,8 +68,12 @@ private:
     float lastBody = std::numeric_limits<float>::quiet_NaN();
     float lastBite = std::numeric_limits<float>::quiet_NaN();
 
-    // Auto-level (auto makeup gain): tracks how hard Drive pushes and pulls the
-    // output back to a constant perceived level. Smoothed so it never zippers.
+    // Auto-level (auto makeup gain): persistent slow RMS envelopes for the dry
+    // (pre-distortion) and wet (post) signals. Per-block RMS is too noisy and
+    // causes pumping, so we integrate across blocks (~400 ms) and take the ratio
+    // from the smoothed envelopes. Mean-square domain; sqrt at use.
+    double dryEnvSq = 0.0;
+    double wetEnvSq = 0.0;
     juce::SmoothedValue<float> autoMakeup;
     float vuMeter = 0.0f; // VU ballistics state (audio thread)
 
